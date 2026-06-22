@@ -3053,6 +3053,19 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     builder.AppendLine("    }");
                     return;
 
+                case SequenceKind.MutableCollection:
+                    builder.Append("        var collection = new ").Append(typeName).AppendLine("();");
+                    builder.AppendLine("        if (rootAnchor is not null) { reader.RegisterAnchor(rootAnchor, collection); }");
+                    builder.AppendLine("        while (reader.TokenType != global::SharpYaml.Serialization.YamlTokenType.EndSequence)");
+                    builder.AppendLine("        {");
+                    EmitReadKnownType(builder, sequenceElementType, indexByType, "element", indent: "            ");
+                    builder.AppendLine("            collection.Add(element);");
+                    builder.AppendLine("        }");
+                    builder.AppendLine("        reader.Read();");
+                    builder.AppendLine("        return collection;");
+                    builder.AppendLine("    }");
+                    return;
+
                 default:
                     builder.Append("        var list = new global::System.Collections.Generic.List<").Append(elementTypeName).AppendLine(">();");
                     builder.AppendLine("        if (rootAnchor is not null) { reader.RegisterAnchor(rootAnchor, list); }");
@@ -4504,6 +4517,19 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     builder.AppendLine("                }");
                     return;
 
+                case SequenceKind.MutableCollection:
+                    builder.Append("                    var collection = new ").Append(memberTypeName).AppendLine("();");
+                    builder.AppendLine("                    if (memberAnchor is not null) { reader.RegisterAnchor(memberAnchor, collection); }");
+                    builder.AppendLine("                    while (reader.TokenType != global::SharpYaml.Serialization.YamlTokenType.EndSequence)");
+                    builder.AppendLine("                    {");
+                    EmitReadKnownType(builder, sequenceElementType, indexByType, "element", indent: "                        ");
+                    builder.AppendLine("                        collection.Add(element);");
+                    builder.AppendLine("                    }");
+                    builder.AppendLine("                    reader.Read();");
+                    builder.Append("                    ").Append(member.AssignExpression("collection")).AppendLine(";");
+                    builder.AppendLine("                }");
+                    return;
+
                 default:
                     builder.Append("                    var list = new global::System.Collections.Generic.List<").Append(elementTypeName).AppendLine(">();");
                     builder.AppendLine("                    if (memberAnchor is not null) { reader.RegisterAnchor(memberAnchor, list); }");
@@ -5585,6 +5611,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
     {
         List,
         Enumerable,
+        MutableCollection,
         Set,
         ImmutableArray,
         ImmutableList,
@@ -5645,9 +5672,62 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             }
         }
 
+        if (TryGetMutableCollectionElementType(type, out elementType))
+        {
+            kind = SequenceKind.MutableCollection;
+            return true;
+        }
+
         elementType = null!;
         kind = default;
         return false;
+    }
+
+    private static bool TryGetMutableCollectionElementType(ITypeSymbol type, out ITypeSymbol elementType)
+    {
+        elementType = null!;
+
+        if (type is not INamedTypeSymbol named ||
+            named.TypeKind != TypeKind.Class ||
+            named.IsAbstract ||
+            named.InstanceConstructors.All(static constructor => constructor.Parameters.Length != 0 || constructor.DeclaredAccessibility != Accessibility.Public))
+        {
+            return false;
+        }
+
+        ITypeSymbol? matchedElementType = null;
+        foreach (var interfaceType in named.AllInterfaces)
+        {
+            var constructed = interfaceType.ConstructedFrom.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (string.Equals(constructed, "global::System.Collections.IDictionary", StringComparison.Ordinal) ||
+                string.Equals(constructed, "global::System.Collections.Generic.IDictionary<TKey, TValue>", StringComparison.Ordinal) ||
+                string.Equals(constructed, "global::System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!string.Equals(constructed, "global::System.Collections.Generic.ICollection<T>", StringComparison.Ordinal) ||
+                interfaceType.TypeArguments.Length != 1)
+            {
+                continue;
+            }
+
+            var currentElementType = interfaceType.TypeArguments[0];
+            if (matchedElementType is not null && !SymbolEqualityComparer.Default.Equals(matchedElementType, currentElementType))
+            {
+                return false;
+            }
+
+            matchedElementType = currentElementType;
+        }
+
+        if (matchedElementType is null)
+        {
+            return false;
+        }
+
+        elementType = matchedElementType;
+        return true;
     }
 
     private static bool TryGetDictionaryValueType(ITypeSymbol type, out ITypeSymbol valueType)

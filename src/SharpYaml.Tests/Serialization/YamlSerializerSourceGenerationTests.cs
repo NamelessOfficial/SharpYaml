@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -179,6 +180,11 @@ internal sealed class GeneratedMoreCollections
     public ImmutableArray<int> ImmutableNumbers { get; set; }
 
     public ImmutableList<string>? ImmutableNames { get; set; }
+}
+
+internal sealed class GeneratedObservableCollectionHolder
+{
+    public ObservableCollection<string> Values { get; set; } = new();
 }
 
 internal sealed class GeneratedReferenceNode
@@ -620,7 +626,9 @@ internal sealed class GeneratedReadOnlyPopulateStructContainer
 [YamlSerializable(typeof(int?))]
 [YamlSerializable(typeof(GeneratedCollections))]
 [YamlSerializable(typeof(GeneratedMoreCollections))]
+[YamlSerializable(typeof(GeneratedObservableCollectionHolder))]
 [YamlSerializable(typeof(List<int>))]
+[YamlSerializable(typeof(ObservableCollection<string>))]
 [YamlSerializable(typeof(Dictionary<string, int>))]
 [YamlSerializable(typeof(Dictionary<int, int>))]
 [YamlSerializable(typeof(Dictionary<int, string>))]
@@ -1626,6 +1634,31 @@ public class YamlSerializerSourceGenerationTests
         Assert.IsNotNull(dict);
         Assert.AreEqual(1, dict["a"]);
         Assert.AreEqual(2, dict["b"]);
+
+        var observableTypeInfo = context.ObservableCollectionString;
+        var yamlObservable = YamlSerializer.Serialize(new ObservableCollection<string> { "Hello", "World" }, observableTypeInfo);
+        var observable = YamlSerializer.Deserialize(yamlObservable, observableTypeInfo);
+        Assert.IsNotNull(observable);
+        Assert.IsInstanceOfType<ObservableCollection<string>>(observable);
+        CollectionAssert.AreEqual(new[] { "Hello", "World" }, observable);
+    }
+
+    [TestMethod]
+    public void GeneratedContextRoundTripsObservableCollectionMembers()
+    {
+        var context = new TestYamlSerializerContext();
+        var typeInfo = context.GeneratedObservableCollectionHolder;
+        var value = new GeneratedObservableCollectionHolder
+        {
+            Values = new ObservableCollection<string> { "Hello", "World" },
+        };
+
+        var yaml = YamlSerializer.Serialize(value, typeInfo);
+        var roundtripped = YamlSerializer.Deserialize(yaml, typeInfo);
+
+        Assert.IsNotNull(roundtripped);
+        Assert.IsInstanceOfType<ObservableCollection<string>>(roundtripped.Values);
+        CollectionAssert.AreEqual(new[] { "Hello", "World" }, roundtripped.Values);
     }
 
     [TestMethod]

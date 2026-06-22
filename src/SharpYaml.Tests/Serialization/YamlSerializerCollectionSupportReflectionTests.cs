@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace SharpYaml.Tests.Serialization;
@@ -171,6 +172,35 @@ public sealed class YamlSerializerCollectionSupportReflectionTests
     }
 
     [TestMethod]
+    public void RoundTrip_ObservableCollection_ShouldPreserveCollectionType()
+    {
+        var value = new ObservableCollection<string> { "Hello", "World" };
+
+        var yaml = YamlSerializer.Serialize(value);
+        var result = YamlSerializer.Deserialize<ObservableCollection<string>>(yaml);
+
+        Assert.IsNotNull(result);
+        Assert.IsInstanceOfType<ObservableCollection<string>>(result);
+        CollectionAssert.AreEqual(new[] { "Hello", "World" }, result);
+    }
+
+    [TestMethod]
+    public void Populate_ObservableCollectionProperty_ShouldAddValuesToExistingCollection()
+    {
+        var yaml = "Items:\n- added\n";
+        var options = new YamlSerializerOptions
+        {
+            PreferredObjectCreationHandling = System.Text.Json.Serialization.JsonObjectCreationHandling.Populate,
+        };
+
+        var result = YamlSerializer.Deserialize<ObservableCollectionPayload>(yaml, options);
+
+        Assert.IsNotNull(result);
+        Assert.IsInstanceOfType<ObservableCollection<string>>(result.Items);
+        CollectionAssert.AreEqual(new[] { "existing", "added" }, result.Items);
+    }
+
+    [TestMethod]
     public void Deserialize_ImmutableCollections_WithAnchors_ShouldPreserveReferences()
     {
         var yaml =
@@ -239,6 +269,11 @@ public sealed class YamlSerializerCollectionSupportReflectionTests
         public IReadOnlyDictionary<TestColor, int>? Primary { get; set; }
 
         public IReadOnlyDictionary<TestColor, int>? Secondary { get; set; }
+    }
+
+    private sealed class ObservableCollectionPayload
+    {
+        public ObservableCollection<string> Items { get; } = new() { "existing" };
     }
 
     private static string ExtractAnchor(string yaml, string prefix)
