@@ -14,6 +14,7 @@
     <File Path="global.json" />
   </Folder>
   <Project Path="SharpYaml.AotSmoke/SharpYaml.AotSmoke.csproj" />
+  <Project Path="SharpYaml.AotSmokeLib/SharpYaml.AotSmokeLib.csproj" />
   <Project Path="SharpYaml.FeatureSwitchSmoke/SharpYaml.FeatureSwitchSmoke.csproj" />
   <Project Path="SharpYaml.Benchmarks/SharpYaml.Benchmarks.csproj" />
   <Project Path="SharpYaml.SourceGenerator/SharpYaml.SourceGenerator.csproj" />

@@ -771,7 +771,10 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             builder.AppendLine();
             builder.Append("        public override void Write(global::SharpYaml.Serialization.YamlWriter writer, ").Append(serializableType).AppendLine(" value)");
             builder.AppendLine("        {");
-            builder.AppendLine("            global::System.ArgumentNullException.ThrowIfNull(writer);");
+            builder.AppendLine("            if (writer is null)");
+            builder.AppendLine("            {");
+            builder.AppendLine("                throw new global::System.ArgumentNullException(nameof(writer));");
+            builder.AppendLine("            }");
             builder.Append("            WriteValue").Append(index).AppendLine("(writer, value);");
             builder.AppendLine("        }");
             builder.AppendLine();
