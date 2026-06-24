@@ -899,6 +899,8 @@ public class YamlSerializerSourceGenerationTests
         AssertGeneratedSourceDoesNotContain(generatedSource, "options.DuplicateKeyHandling");
         AssertGeneratedSourceDoesNotContain(generatedSource, "if (options.");
         AssertGeneratedSourceDoesNotContain(generatedSource, "switch (options.");
+        AssertGeneratedSourceDoesNotContain(generatedSource, "writer.Options");
+        AssertGeneratedSourceDoesNotContain(generatedSource, "reader.Options");
         AssertGeneratedSourceDoesNotContain(generatedSource, "HasRuntimeCustomConverters");
         AssertGeneratedSourceDoesNotContain(generatedSource, "TryGetCustomConverter");
         AssertGeneratedSourceDoesNotContain(generatedSource, "extensionData is not global::SharpYaml.Model.YamlMapping");

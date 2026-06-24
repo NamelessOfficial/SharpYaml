@@ -844,11 +844,11 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("        }");
             }
 
-            builder.AppendLine("        var options = writer.Options;");
             builder.Append("        global::SharpYaml.Serialization.YamlConverter attributeConverter = new ").Append(attributeConverterTypeName).AppendLine("();");
             builder.AppendLine("        if (attributeConverter is global::SharpYaml.Serialization.YamlConverterFactory factory)");
             builder.AppendLine("        {");
-            builder.Append("            var created = factory.CreateConverter(typeof(").Append(typeName).AppendLine("), options);");
+            builder.AppendLine("            var converterOptions = writer.Options;");
+            builder.Append("            var created = factory.CreateConverter(typeof(").Append(typeName).AppendLine("), converterOptions);");
             builder.AppendLine("            if (created is null || !created.CanConvert(typeof(" + typeName + ")))");
             builder.AppendLine("            {");
             builder.AppendLine("                throw new global::System.InvalidOperationException(\"Converter factory returned an invalid converter.\");");
@@ -867,9 +867,6 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             builder.AppendLine("    }");
             return;
         }
-
-        builder.AppendLine("        var options = writer.Options;");
-        builder.AppendLine();
 
         if (typeSymbol is INamedTypeSymbol nullableType && nullableType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
         {
@@ -1174,11 +1171,17 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine();
 
                 var discriminatorPropertyNameExpression = GetDiscriminatorPropertyNameExpression(polymorphism, sourceGenerationOptions);
-                var discriminatorStyleOverride = polymorphism.DiscriminatorStyleOverrideValue ?? GetDiscriminatorStyleOverride(sourceGenerationOptions);
+                var discriminatorStyleOverride = polymorphism.DiscriminatorStyleOverrideValue ?? GetDiscriminatorStyle(sourceGenerationOptions);
                 var hasDiscriminatorStyleOverride = discriminatorStyleOverride.HasValue;
                 var writeTagForOverride = discriminatorStyleOverride is int writeStyle && DiscriminatorStyleWritesTag(writeStyle);
                 var writePropertyForOverride = discriminatorStyleOverride is int writePropertyStyle && DiscriminatorStyleWritesProperty(writePropertyStyle);
                 var mayWriteDiscriminatorProperty = !hasDiscriminatorStyleOverride || writePropertyForOverride;
+
+                if (!hasDiscriminatorStyleOverride ||
+                    (mayWriteDiscriminatorProperty && discriminatorPropertyNameExpression.Contains("options.", StringComparison.Ordinal)))
+                {
+                    builder.AppendLine("        var options = writer.Options;");
+                }
 
                 if (mayWriteDiscriminatorProperty)
                 {
@@ -1288,17 +1291,21 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             .Append("(global::SharpYaml.Serialization.YamlWriter writer, ").Append(typeName)
             .AppendLine(" value, string? discriminatorPropertyName)");
         builder.AppendLine("    {");
-        builder.AppendLine("        var options = writer.Options;");
-        builder.AppendLine();
-        var defaultIgnoreConditionOverride = GetDefaultIgnoreConditionOverride(sourceGenerationOptions);
-        var sortedMappingOrderOverride = GetSortedMappingOrderOverride(sourceGenerationOptions);
+        var defaultIgnoreCondition = GetDefaultIgnoreCondition(sourceGenerationOptions);
+        var sortedMappingOrder = GetSortedMappingOrder(sourceGenerationOptions);
+        if ((defaultIgnoreCondition is null && members.Any(static member => member.IgnoreCondition is null)) ||
+            (sortedMappingOrder is null && extensionData is not null))
+        {
+            builder.AppendLine("        var options = writer.Options;");
+            builder.AppendLine();
+        }
 
         foreach (var member in members)
         {
             var memberValueVar = "__value" + index + "_" + member.Symbol.Name;
             var nameVar = "__name" + index + "_" + member.Symbol.Name;
 
-            EmitWriteMember(builder, member, indexByType, memberValueVar, nameVar, defaultIgnoreConditionOverride, sourceGenerationOptions);
+            EmitWriteMember(builder, member, indexByType, memberValueVar, nameVar, defaultIgnoreCondition, sourceGenerationOptions);
         }
 
         if (extensionData is not null)
@@ -1313,11 +1320,11 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 var valueTypeName = (extensionData.DictionaryValueType ?? throw new InvalidOperationException("Extension data dictionary value type is missing."))
                     .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-                EmitWriteExtensionDataDictionaryEntries(builder, valueTypeName, sortedMappingOrderOverride);
+                EmitWriteExtensionDataDictionaryEntries(builder, valueTypeName, sortedMappingOrder);
             }
             else
             {
-                EmitWriteExtensionDataMappingEntries(builder, sortedMappingOrderOverride);
+                EmitWriteExtensionDataMappingEntries(builder, sortedMappingOrder);
             }
 
             builder.AppendLine("        }");
@@ -1326,11 +1333,11 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         builder.AppendLine("    }");
     }
 
-    private static void EmitWriteExtensionDataDictionaryEntries(StringBuilder builder, string valueTypeName, bool? sortedMappingOrderOverride)
+    private static void EmitWriteExtensionDataDictionaryEntries(StringBuilder builder, string valueTypeName, bool? sortedMappingOrder)
     {
         EmitMappingOrderBranch(
             builder,
-            sortedMappingOrderOverride,
+            sortedMappingOrder,
             "            ",
             sortedIndent =>
             {
@@ -1362,12 +1369,12 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             });
     }
 
-    private static void EmitWriteExtensionDataMappingEntries(StringBuilder builder, bool? sortedMappingOrderOverride)
+    private static void EmitWriteExtensionDataMappingEntries(StringBuilder builder, bool? sortedMappingOrder)
     {
         builder.AppendLine("            var list = (global::System.Collections.Generic.IList<global::System.Collections.Generic.KeyValuePair<global::SharpYaml.Model.YamlElement, global::SharpYaml.Model.YamlElement?>>)extensionData;");
         EmitMappingOrderBranch(
             builder,
-            sortedMappingOrderOverride,
+            sortedMappingOrder,
             "            ",
             sortedIndent =>
             {
@@ -1409,11 +1416,11 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             });
     }
 
-    private static void EmitMappingOrderBranch(StringBuilder builder, bool? sortedMappingOrderOverride, string indent, Action<string> emitSorted, Action<string> emitDeclaration)
+    private static void EmitMappingOrderBranch(StringBuilder builder, bool? sortedMappingOrder, string indent, Action<string> emitSorted, Action<string> emitDeclaration)
     {
-        if (sortedMappingOrderOverride.HasValue)
+        if (sortedMappingOrder.HasValue)
         {
-            if (sortedMappingOrderOverride.Value)
+            if (sortedMappingOrder.Value)
             {
                 emitSorted(indent);
             }
@@ -1475,10 +1482,10 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         Dictionary<ITypeSymbol, int> indexByType,
         string memberValueVar,
         string nameVar,
-        int? defaultIgnoreConditionOverride,
+        int? defaultIgnoreCondition,
         SourceGenerationOptionsModel sourceGenerationOptions)
     {
-        var ignoreCondition = member.IgnoreCondition ?? defaultIgnoreConditionOverride;
+        var ignoreCondition = member.IgnoreCondition ?? defaultIgnoreCondition;
         if (ignoreCondition.HasValue)
         {
             EmitWriteMemberWithKnownIgnoreCondition(builder, member, indexByType, memberValueVar, nameVar, ignoreCondition.Value, sourceGenerationOptions);
@@ -1606,20 +1613,20 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             typeSymbol is INamedTypeSymbol lifecycleType &&
             ((lifecycleType.TypeKind == TypeKind.Class && (!lifecycleType.IsSealed || ImplementsAnyYamlLifecycleCallback(lifecycleType))) ||
              (lifecycleType.TypeKind == TypeKind.Struct && ImplementsAnyYamlLifecycleCallback(lifecycleType)));
-        var preferredObjectCreationHandlingOverride = typeSymbol is INamedTypeSymbol objectCreationType
-            ? TryGetJsonObjectCreationHandlingOverride(objectCreationType) ?? GetPreferredObjectCreationHandlingOverride(sourceGenerationOptions)
-            : GetPreferredObjectCreationHandlingOverride(sourceGenerationOptions);
-        var unmappedMemberHandlingOverride = extensionData is null && typeSymbol is INamedTypeSymbol unmappedHandlingType
-            ? TryGetJsonUnmappedMemberHandlingOverride(unmappedHandlingType) ?? GetUnmappedMemberHandlingOverride(sourceGenerationOptions)
-            : extensionData is null ? GetUnmappedMemberHandlingOverride(sourceGenerationOptions) : null;
+        var preferredObjectCreationHandling = typeSymbol is INamedTypeSymbol objectCreationType
+            ? TryGetJsonObjectCreationHandlingOverride(objectCreationType) ?? GetPreferredObjectCreationHandling(sourceGenerationOptions)
+            : GetPreferredObjectCreationHandling(sourceGenerationOptions);
+        var unmappedMemberHandling = extensionData is null && typeSymbol is INamedTypeSymbol unmappedHandlingType
+            ? TryGetJsonUnmappedMemberHandlingOverride(unmappedHandlingType) ?? GetUnmappedMemberHandling(sourceGenerationOptions)
+            : extensionData is null ? GetUnmappedMemberHandling(sourceGenerationOptions) : null;
         var propertyNameComparerExpression = GetPropertyNameComparerExpression(sourceGenerationOptions);
         var propertyNameComparisonExpression = GetPropertyNameComparisonExpression(sourceGenerationOptions);
         var mergeEnabledExpression = GetMergeEnabledExpression(sourceGenerationOptions);
+        var duplicateKeyHandling = GetDuplicateKeyHandling(sourceGenerationOptions);
 
         builder.Append("    private static ").Append(typeName).Append(typeSymbol.IsReferenceType ? "?" : string.Empty).Append(" ReadObjectCore").Append(index)
             .AppendLine("(global::SharpYaml.Serialization.YamlReader reader)");
         builder.AppendLine("    {");
-        builder.AppendLine("        var options = reader.Options;");
         builder.AppendLine("        if (reader.TokenType != global::SharpYaml.Serialization.YamlTokenType.StartMapping)");
         builder.AppendLine("        {");
             builder.AppendLine("            throw global::SharpYaml.Serialization.YamlThrowHelper.ThrowExpectedMapping(reader);");
@@ -1659,10 +1666,22 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                  members.Any(static member => member.NeedsObjectInitializer) ||
                  extensionData is { IsInitOnly: true }))
             {
-                EmitReadObjectCoreWithConstructor(builder, index, ctorType, typeName, selectedConstructor, members, extensionData, indexByType, emitLifecycleCallbacks, propertyNamingPolicy, unmappedMemberHandlingOverride, sourceGenerationOptions);
+                EmitReadObjectCoreWithConstructor(builder, index, ctorType, typeName, selectedConstructor, members, extensionData, indexByType, emitLifecycleCallbacks, propertyNamingPolicy, unmappedMemberHandling, sourceGenerationOptions);
                 builder.AppendLine("    }");
                 return;
             }
+        }
+
+        var needsRuntimeOptions = propertyNameComparerExpression.Contains("options.", StringComparison.Ordinal) ||
+            propertyNameComparisonExpression.Contains("options.", StringComparison.Ordinal) ||
+            mergeEnabledExpression.Contains("options.", StringComparison.Ordinal) ||
+            (duplicateKeyHandling is null && members.Any(static member => TryGetDictionaryTypes(member.Type, out _, out _, out _))) ||
+            preferredObjectCreationHandling is null ||
+            (extensionData is null && unmappedMemberHandling is null);
+
+        if (needsRuntimeOptions)
+        {
+            builder.AppendLine("        var options = reader.Options;");
         }
 
         builder.Append("        var instance = new ").Append(typeName).AppendLine("();");
@@ -1858,7 +1877,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 typeName,
                 indexByType,
                 extensionData is not null ? "ReadAndStoreExtensionData(mergeKey);" : "reader.Skip();",
-                preferredObjectCreationHandlingOverride,
+                preferredObjectCreationHandling,
                 sourceGenerationOptions);
 
             builder.AppendLine("                }");
@@ -1872,7 +1891,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         }
         else
         {
-            EmitHandleUnmatchedMember(builder, typeName, "mergeKey", unmappedMemberHandlingOverride, indent: "                    ");
+            EmitHandleUnmatchedMember(builder, typeName, "mergeKey", unmappedMemberHandling, indent: "                    ");
         }
         builder.AppendLine("                }");
         builder.AppendLine("            }");
@@ -1925,7 +1944,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 typeName,
                 indexByType,
                 extensionData is not null ? "ReadAndStoreExtensionData(key);" : "reader.Skip();",
-                preferredObjectCreationHandlingOverride,
+                preferredObjectCreationHandling,
                 sourceGenerationOptions);
             builder.AppendLine("            }");
         }
@@ -1938,7 +1957,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         }
         else
         {
-            EmitHandleUnmatchedMember(builder, typeName, "key", unmappedMemberHandlingOverride, indent: "                ");
+            EmitHandleUnmatchedMember(builder, typeName, "key", unmappedMemberHandling, indent: "                ");
         }
         builder.AppendLine("            }");
         builder.AppendLine("        }");
@@ -1993,16 +2012,16 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         StringBuilder builder,
         string typeName,
         string keyExpression,
-        string? unmappedMemberHandlingOverride,
+        string? unmappedMemberHandling,
         string indent)
     {
-        if (string.Equals(unmappedMemberHandlingOverride, "Disallow", StringComparison.Ordinal))
+        if (string.Equals(unmappedMemberHandling, "Disallow", StringComparison.Ordinal))
         {
             builder.Append(indent).Append("throw global::SharpYaml.Serialization.YamlThrowHelper.ThrowUnmappedMember(reader, typeof(").Append(typeName).Append("), ").Append(keyExpression).AppendLine(");");
             return;
         }
 
-        if (unmappedMemberHandlingOverride is null)
+        if (unmappedMemberHandling is null)
         {
             builder.Append(indent).AppendLine("if (options.UnmappedMemberHandling == global::System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)");
             builder.Append(indent).AppendLine("{");
@@ -2024,7 +2043,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         Dictionary<ITypeSymbol, int> indexByType,
         bool emitLifecycleCallbacks,
         JsonNamingPolicy? propertyNamingPolicy,
-        string? unmappedMemberHandlingOverride,
+        string? unmappedMemberHandling,
         SourceGenerationOptionsModel sourceGenerationOptions)
     {
         var propertyNameComparerExpression = GetPropertyNameComparerExpression(sourceGenerationOptions);
@@ -2151,6 +2170,15 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("            extensionEntries.Add(new global::System.Collections.Generic.KeyValuePair<string, global::SharpYaml.Model.YamlElement?>(extensionKey, extensionValue));");
                 builder.AppendLine("        }");
             }
+        }
+
+        if (propertyNameComparerExpression.Contains("options.", StringComparison.Ordinal) ||
+            propertyNameComparisonExpression.Contains("options.", StringComparison.Ordinal) ||
+            mergeEnabledExpression.Contains("options.", StringComparison.Ordinal) ||
+            (extensionData is null && unmappedMemberHandling is null))
+        {
+            builder.AppendLine("        var options = reader.Options;");
+            builder.AppendLine();
         }
 
         builder.AppendLine();
@@ -2347,7 +2375,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         }
         else
         {
-            EmitHandleUnmatchedMember(builder, typeName, "mergeKey", unmappedMemberHandlingOverride, indent: "                    ");
+            EmitHandleUnmatchedMember(builder, typeName, "mergeKey", unmappedMemberHandling, indent: "                    ");
         }
         builder.AppendLine("                }");
         builder.AppendLine("            }");
@@ -2497,7 +2525,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         }
         else
         {
-            EmitHandleUnmatchedMember(builder, typeName, "key", unmappedMemberHandlingOverride, indent: "                ");
+            EmitHandleUnmatchedMember(builder, typeName, "key", unmappedMemberHandling, indent: "                ");
         }
         builder.AppendLine("            }");
         builder.AppendLine("        }");
@@ -2886,18 +2914,18 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         var attributeConverterTypeName = GetYamlConverterAttributeTypeName((ISymbol)typeSymbol);
         var propertyNameComparerExpression = GetPropertyNameComparerExpression(sourceGenerationOptions);
         var mergeEnabledExpression = GetMergeEnabledExpression(sourceGenerationOptions);
-        var duplicateKeyHandlingOverride = GetDuplicateKeyHandlingOverride(sourceGenerationOptions);
+        var duplicateKeyHandling = GetDuplicateKeyHandling(sourceGenerationOptions);
 
         builder.Append("    private static ").Append(typeName).Append(typeSymbol.IsReferenceType ? "?" : string.Empty).Append(" ReadValue").Append(index)
             .AppendLine("(global::SharpYaml.Serialization.YamlReader reader)");
         builder.AppendLine("    {");
         if (attributeConverterTypeName is not null)
         {
-            builder.AppendLine("        var options = reader.Options;");
             builder.Append("        global::SharpYaml.Serialization.YamlConverter attributeConverter = new ").Append(attributeConverterTypeName).AppendLine("();");
             builder.AppendLine("        if (attributeConverter is global::SharpYaml.Serialization.YamlConverterFactory factory)");
             builder.AppendLine("        {");
-            builder.Append("            var created = factory.CreateConverter(typeof(").Append(typeName).AppendLine("), options);");
+            builder.AppendLine("            var converterOptions = reader.Options;");
+            builder.Append("            var created = factory.CreateConverter(typeof(").Append(typeName).AppendLine("), converterOptions);");
             builder.AppendLine("            if (created is null || !created.CanConvert(typeof(" + typeName + ")))");
             builder.AppendLine("            {");
             builder.AppendLine("                throw new global::System.InvalidOperationException(\"Converter factory returned an invalid converter.\");");
@@ -2917,9 +2945,6 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             builder.AppendLine("    }");
             return;
         }
-
-        builder.AppendLine("        var options = reader.Options;");
-        builder.AppendLine();
 
         if (typeSymbol is INamedTypeSymbol nullableType && nullableType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
         {
@@ -3120,8 +3145,17 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             builder.AppendLine("        var rootAnchor = reader.Anchor;");
             builder.AppendLine("        reader.Read();");
 
+            var dictionaryKeyIsString = dictionaryKeyType.SpecialType == SpecialType.System_String;
+            if ((dictionaryKeyIsString &&
+                 (propertyNameComparerExpression.Contains("options.", StringComparison.Ordinal) ||
+                  mergeEnabledExpression.Contains("options.", StringComparison.Ordinal))) ||
+                duplicateKeyHandling is null)
+            {
+                builder.AppendLine("        var options = reader.Options;");
+            }
+
             var dictionaryTypePrefix = GetDictionaryTypePrefix(typeSymbol);
-            if (dictionaryKeyType.SpecialType == SpecialType.System_String)
+            if (dictionaryKeyIsString)
             {
                 builder.Append("        var dictionary = new ").Append(dictionaryTypePrefix).Append("<string, ").Append(valueTypeName)
                     .Append(">(").Append(propertyNameComparerExpression).AppendLine(");");
@@ -3220,7 +3254,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("            if (seenKeys is not null && !seenKeys.Add(key))");
                 builder.AppendLine("            {");
-                EmitDuplicateKeyHandling(builder, duplicateKeyHandlingOverride, "key", "dictionary[key] = value", indent: "                ");
+                EmitDuplicateKeyHandling(builder, duplicateKeyHandling, "key", "dictionary[key] = value", indent: "                ");
                 builder.AppendLine("            }");
                 builder.AppendLine("            else");
                 builder.AppendLine("            {");
@@ -3231,7 +3265,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("            if (dictionary.ContainsKey(key))");
                 builder.AppendLine("            {");
-                EmitDuplicateKeyHandling(builder, duplicateKeyHandlingOverride, "key.ToString() ?? string.Empty", "dictionary[key] = value", indent: "                ");
+                EmitDuplicateKeyHandling(builder, duplicateKeyHandling, "key.ToString() ?? string.Empty", "dictionary[key] = value", indent: "                ");
                 builder.AppendLine("            }");
                 builder.AppendLine("            else");
                 builder.AppendLine("            {");
@@ -3542,10 +3576,15 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 builder.AppendLine("        var rootTag = reader.Tag;");
 
                 var discriminatorPropertyNameExpression = GetDiscriminatorPropertyNameExpression(polymorphism, sourceGenerationOptions);
-                var discriminatorStyleOverride = polymorphism.DiscriminatorStyleOverrideValue ?? GetDiscriminatorStyleOverride(sourceGenerationOptions);
+                var discriminatorStyleOverride = polymorphism.DiscriminatorStyleOverrideValue ?? GetDiscriminatorStyle(sourceGenerationOptions);
                 var hasDiscriminatorStyleOverride = discriminatorStyleOverride.HasValue;
                 var readPropertyDiscriminatorForOverride = discriminatorStyleOverride is int readPropertyStyle && DiscriminatorStyleReadsProperty(readPropertyStyle);
                 var readTagDiscriminatorForOverride = discriminatorStyleOverride is int readTagStyle && DiscriminatorStyleReadsTag(readTagStyle);
+
+                if (!hasDiscriminatorStyleOverride || discriminatorPropertyNameExpression.Contains("options.", StringComparison.Ordinal))
+                {
+                    builder.AppendLine("        var options = reader.Options;");
+                }
 
                 builder.Append("        var discriminatorPropertyName = ").Append(discriminatorPropertyNameExpression).AppendLine(";");
                 if (!hasDiscriminatorStyleOverride)
@@ -3553,8 +3592,8 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     builder.AppendLine("        var discriminatorStyle = options.PolymorphismOptions.DiscriminatorStyle;");
                 }
 
-                var unknownDerivedTypeHandlingOverride = polymorphism.UnknownDerivedTypeHandlingOverrideValue ?? GetUnknownDerivedTypeHandlingOverride(sourceGenerationOptions);
-                if (!unknownDerivedTypeHandlingOverride.HasValue)
+                var unknownDerivedTypeHandling = polymorphism.UnknownDerivedTypeHandlingOverrideValue ?? GetUnknownDerivedTypeHandling(sourceGenerationOptions);
+                if (!unknownDerivedTypeHandling.HasValue)
                 {
                     builder.AppendLine("        var unknownDerivedTypeHandling = options.PolymorphismOptions.UnknownDerivedTypeHandling;");
                 }
@@ -3597,7 +3636,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     {
                         EmitUnknownDerivedTypeFailure(
                             builder,
-                            unknownDerivedTypeHandlingOverride,
+                            unknownDerivedTypeHandling,
                             "global::SharpYaml.Serialization.YamlThrowHelper.ThrowUnknownTypeDiscriminator(bufferedReader, discriminatorValue, typeof(" + typeName + "))",
                             indent: "            ");
                     }
@@ -3639,7 +3678,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                     {
                         EmitUnknownDerivedTypeFailure(
                             builder,
-                            unknownDerivedTypeHandlingOverride,
+                            unknownDerivedTypeHandling,
                             "global::SharpYaml.Serialization.YamlThrowHelper.ThrowUnknownTypeTag(bufferedReader, rootTag, typeof(" + typeName + "))",
                             indent: "            ");
                     }
@@ -3957,7 +3996,8 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 .Append(member.AttributeConverterTypeName).AppendLine("();");
             builder.Append(indent).AppendLine("    if (attributeConverter is global::SharpYaml.Serialization.YamlConverterFactory factory)");
             builder.Append(indent).AppendLine("    {");
-            builder.Append(indent).Append("        attributeConverter = factory.CreateConverter(typeof(").Append(memberTypeName).AppendLine("), options);");
+            builder.Append(indent).AppendLine("        var converterOptions = writer.Options;");
+            builder.Append(indent).Append("        attributeConverter = factory.CreateConverter(typeof(").Append(memberTypeName).AppendLine("), converterOptions);");
             builder.Append(indent).AppendLine("        if (attributeConverter is null || !attributeConverter.CanConvert(typeof(" + memberTypeName + ")))");
             builder.Append(indent).AppendLine("        {");
             builder.Append(indent).AppendLine("            throw new global::System.InvalidOperationException(\"Attribute converter factory returned an invalid converter.\");");
@@ -3980,7 +4020,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
     {
         var propertyNameComparerExpression = GetPropertyNameComparerExpression(sourceGenerationOptions);
         var mergeEnabledExpression = GetMergeEnabledExpression(sourceGenerationOptions);
-        var duplicateKeyHandlingOverride = GetDuplicateKeyHandlingOverride(sourceGenerationOptions);
+        var duplicateKeyHandling = GetDuplicateKeyHandling(sourceGenerationOptions);
 
         if (member.Type is INamedTypeSymbol nullableType && nullableType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
         {
@@ -4688,7 +4728,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("                        if (dictionarySeenKeys is not null && !dictionarySeenKeys.Add(entryKey))");
                 builder.AppendLine("                        {");
-                EmitDuplicateKeyHandling(builder, duplicateKeyHandlingOverride, "entryKey", "dictionary[entryKey] = value", indent: "                            ");
+                EmitDuplicateKeyHandling(builder, duplicateKeyHandling, "entryKey", "dictionary[entryKey] = value", indent: "                            ");
                 builder.AppendLine("                        }");
                 builder.AppendLine("                        else");
                 builder.AppendLine("                        {");
@@ -4699,7 +4739,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             {
                 builder.AppendLine("                        if (dictionary.ContainsKey(entryKey))");
                 builder.AppendLine("                        {");
-                EmitDuplicateKeyHandling(builder, duplicateKeyHandlingOverride, "entryKey.ToString() ?? string.Empty", "dictionary[entryKey] = value", indent: "                            ");
+                EmitDuplicateKeyHandling(builder, duplicateKeyHandling, "entryKey.ToString() ?? string.Empty", "dictionary[entryKey] = value", indent: "                            ");
                 builder.AppendLine("                        }");
                 builder.AppendLine("                        else");
                 builder.AppendLine("                        {");
@@ -4728,7 +4768,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
         string declaringTypeName,
         Dictionary<ITypeSymbol, int> indexByType,
         string readOnlyFallbackStatement,
-        string? preferredObjectCreationHandlingOverride,
+        string? preferredObjectCreationHandling,
         SourceGenerationOptionsModel sourceGenerationOptions)
     {
         var memberTypeName = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -4749,13 +4789,13 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             return;
         }
 
-        if (string.Equals(preferredObjectCreationHandlingOverride, "Populate", StringComparison.Ordinal))
+        if (string.Equals(preferredObjectCreationHandling, "Populate", StringComparison.Ordinal))
         {
             EmitPopulateObjectMemberValue(builder, member, memberTypeName, declaringTypeName, indexByType, readOnlyFallbackStatement, canAssign, canPopulateValueType, explicitPopulate: false, indent: "                ", sourceGenerationOptions);
             return;
         }
 
-        if (string.Equals(preferredObjectCreationHandlingOverride, "Replace", StringComparison.Ordinal))
+        if (string.Equals(preferredObjectCreationHandling, "Replace", StringComparison.Ordinal))
         {
             EmitReplaceObjectMemberValue(builder, member, indexByType, readOnlyFallbackStatement, canAssign, indent: "                ", sourceGenerationOptions);
             return;
@@ -4904,7 +4944,8 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
                 .Append(member.AttributeConverterTypeName).AppendLine("();");
             builder.AppendLine("                    if (attributeConverter is global::SharpYaml.Serialization.YamlConverterFactory factory)");
             builder.AppendLine("                    {");
-            builder.Append("                        attributeConverter = factory.CreateConverter(typeof(").Append(memberTypeName).AppendLine("), options);");
+            builder.AppendLine("                        var converterOptions = reader.Options;");
+            builder.Append("                        attributeConverter = factory.CreateConverter(typeof(").Append(memberTypeName).AppendLine("), converterOptions);");
             builder.AppendLine("                        if (attributeConverter is null || !attributeConverter.CanConvert(typeof(" + memberTypeName + ")))");
             builder.AppendLine("                        {");
             builder.AppendLine("                            throw new global::System.InvalidOperationException(\"Attribute converter factory returned an invalid converter.\");");
@@ -6355,7 +6396,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
     private const int UnknownDerivedTypeHandlingFail = 0;
     private const int UnknownDerivedTypeHandlingFallBackToBase = 1;
 
-    private static int? GetDefaultIgnoreConditionOverride(SourceGenerationOptionsModel options)
+    private static int? GetDefaultIgnoreCondition(SourceGenerationOptionsModel options)
         => options.DefaultIgnoreCondition switch
         {
             "Never" => IgnoreNever,
@@ -6367,7 +6408,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             _ => null,
         };
 
-    private static int? GetDiscriminatorStyleOverride(SourceGenerationOptionsModel options)
+    private static int? GetDiscriminatorStyle(SourceGenerationOptionsModel options)
         => options.DiscriminatorStyle switch
         {
             "Tag" => DiscriminatorStyleTag,
@@ -6376,7 +6417,7 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             _ => null,
         };
 
-    private static int? GetUnknownDerivedTypeHandlingOverride(SourceGenerationOptionsModel options)
+    private static int? GetUnknownDerivedTypeHandling(SourceGenerationOptionsModel options)
         => options.UnknownDerivedTypeHandling switch
         {
             "Fail" => UnknownDerivedTypeHandlingFail,
@@ -6384,16 +6425,16 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
             _ => null,
         };
 
-    private static string? GetUnmappedMemberHandlingOverride(SourceGenerationOptionsModel options)
-        => string.IsNullOrEmpty(options.UnmappedMemberHandling) ? null : options.UnmappedMemberHandling;
+    private static string? GetUnmappedMemberHandling(SourceGenerationOptionsModel options)
+        => options.UnmappedMemberHandling is { Length: > 0 } value ? value : null;
 
-    private static string? GetPreferredObjectCreationHandlingOverride(SourceGenerationOptionsModel options)
-        => string.IsNullOrEmpty(options.PreferredObjectCreationHandling) ? null : options.PreferredObjectCreationHandling;
+    private static string? GetPreferredObjectCreationHandling(SourceGenerationOptionsModel options)
+        => options.PreferredObjectCreationHandling is { Length: > 0 } value ? value : null;
 
-    private static string? GetDuplicateKeyHandlingOverride(SourceGenerationOptionsModel options)
-        => string.IsNullOrEmpty(options.DuplicateKeyHandling) ? null : options.DuplicateKeyHandling;
+    private static string? GetDuplicateKeyHandling(SourceGenerationOptionsModel options)
+        => options.DuplicateKeyHandling is { Length: > 0 } value ? value : null;
 
-    private static bool? GetSortedMappingOrderOverride(SourceGenerationOptionsModel options)
+    private static bool? GetSortedMappingOrder(SourceGenerationOptionsModel options)
         => options.MappingOrder switch
         {
             "Sorted" => true,
@@ -6454,12 +6495,12 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
 
     private static void EmitDuplicateKeyHandling(
         StringBuilder builder,
-        string? duplicateKeyHandlingOverride,
+        string? duplicateKeyHandling,
         string duplicateKeyExpression,
         string lastWinsAssignment,
         string indent)
     {
-        switch (duplicateKeyHandlingOverride)
+        switch (duplicateKeyHandling)
         {
             case "Error":
                 builder.Append(indent).Append("throw global::SharpYaml.Serialization.YamlThrowHelper.ThrowDuplicateMappingKey(reader, ").Append(duplicateKeyExpression).AppendLine(");");
@@ -6486,13 +6527,13 @@ public sealed class YamlSerializerContextGenerator : IIncrementalGenerator
 
     private static void EmitUnknownDerivedTypeFailure(
         StringBuilder builder,
-        int? unknownDerivedTypeHandlingOverride,
+        int? unknownDerivedTypeHandling,
         string throwExpression,
         string indent)
     {
-        if (unknownDerivedTypeHandlingOverride.HasValue)
+        if (unknownDerivedTypeHandling.HasValue)
         {
-            if (unknownDerivedTypeHandlingOverride.Value == UnknownDerivedTypeHandlingFail)
+            if (unknownDerivedTypeHandling.Value == UnknownDerivedTypeHandlingFail)
             {
                 builder.Append(indent).Append("throw ").Append(throwExpression).AppendLine(";");
             }
