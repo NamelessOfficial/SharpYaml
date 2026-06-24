@@ -1,6 +1,9 @@
 #nullable enable
 
 using System;
+using System.IO;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -275,7 +278,9 @@ public class YamlSerializerApiTests
     public void DeserializeFromReadOnlySpan()
     {
         ReadOnlySpan<char> yaml = "FirstName: Ada\nAge: 37";
+#pragma warning disable CS0618 // Exercise obsolete compatibility overload.
         var result = YamlSerializer.Deserialize<Person>(yaml);
+#pragma warning restore CS0618
 
         Assert.IsNotNull(result);
         Assert.AreEqual("Ada", result.FirstName);
@@ -283,10 +288,73 @@ public class YamlSerializerApiTests
     }
 
     [TestMethod]
+    public void ReadOnlySpanDeserializeOverloadsAreObsolete()
+    {
+        var spanOverloadCount = 0;
+        foreach (var method in typeof(YamlSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            foreach (var parameter in method.GetParameters())
+            {
+                if (parameter.ParameterType == typeof(ReadOnlySpan<char>))
+                {
+                    spanOverloadCount++;
+                    var obsolete = method.GetCustomAttribute<ObsoleteAttribute>();
+                    Assert.IsNotNull(obsolete, method.ToString());
+                    Assert.IsFalse(obsolete.IsError, method.ToString());
+                    StringAssert.Contains(obsolete.Message, "string or TextReader overload");
+                    break;
+                }
+            }
+        }
+
+        Assert.AreEqual(5, spanOverloadCount);
+    }
+
+    [TestMethod]
     public void SerializeWithExplicitTypeInfo()
     {
         var typeInfo = new StringTypeInfo(new YamlSerializerOptions());
         var yaml = YamlSerializer.Serialize("hello", typeInfo);
+        var value = YamlSerializer.Deserialize(yaml, typeInfo);
+
+        Assert.AreEqual("value: hello\n", yaml);
+        Assert.AreEqual("hello", value);
+    }
+
+    [TestMethod]
+    public void TextReaderWriterOverloadsSupportExplicitTypeInfo()
+    {
+        var typeInfo = new StringTypeInfo(new YamlSerializerOptions());
+        using var writer = new StringWriter();
+
+        YamlSerializer.Serialize(writer, (object)"hello", typeInfo);
+        using var reader = new StringReader(writer.ToString());
+        var value = YamlSerializer.Deserialize(reader, typeInfo);
+
+        Assert.AreEqual("value: hello\n", writer.ToString());
+        Assert.AreEqual("hello", value);
+    }
+
+    [TestMethod]
+    public void StreamOverloadsSupportExplicitTypeInfo()
+    {
+        var typeInfo = new StringTypeInfo(new YamlSerializerOptions());
+        using var stream = new MemoryStream();
+
+        YamlSerializer.Serialize(stream, "hello", typeInfo);
+        stream.Position = 0;
+        var value = YamlSerializer.Deserialize(stream, typeInfo);
+
+        Assert.AreEqual("hello", value);
+        Assert.AreEqual("value: hello\n", Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [TestMethod]
+    public void NonGenericTypeInfoOverloadsSerializeAndDeserializePayload()
+    {
+        YamlTypeInfo typeInfo = new StringTypeInfo(new YamlSerializerOptions());
+
+        var yaml = YamlSerializer.Serialize((object)"hello", typeInfo);
         var value = YamlSerializer.Deserialize(yaml, typeInfo);
 
         Assert.AreEqual("value: hello\n", yaml);

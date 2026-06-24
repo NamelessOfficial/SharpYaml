@@ -66,6 +66,13 @@ var yaml = YamlSerializer.Serialize(value, MyYamlContext.Default.MyConfig);
 var roundTrip = YamlSerializer.Deserialize(yaml, MyYamlContext.Default.MyConfig);
 ```
 
+The same `YamlTypeInfo<T>` metadata can be passed to reader, writer, and stream overloads when you want to avoid intermediate strings:
+
+```csharp
+YamlSerializer.Serialize(writer, value, MyYamlContext.Default.MyConfig);
+var roundTrip = YamlSerializer.Deserialize(reader, MyYamlContext.Default.MyConfig);
+```
+
 For APIs that take a `Type`, prefer the overloads that accept a context:
 
 ```csharp
