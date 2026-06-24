@@ -32,6 +32,13 @@ internal partial class MyYamlContext : YamlSerializerContext
 
 The context type must be `partial` so the generator can add metadata properties.
 
+Root types pull in statically discoverable member types transitively, including nested object properties,
+collection elements, and dictionary values with supported key types. The discovered types can be declared
+in the same assembly or in referenced assemblies. Add extra `[YamlSerializable]` entries only when you
+need to serialize a type as an independent root or want to give its generated `YamlTypeInfo<T>` property
+an explicit name. Untyped `object` members are handled by SharpYaml's built-in dynamic converter instead
+of being generated as a concrete object graph.
+
 ## Compile-time options
 
 Use [`YamlSourceGenerationOptionsAttribute`](xref:SharpYaml.Serialization.YamlSourceGenerationOptionsAttribute) to fix a context's default [`YamlSerializerOptions`](xref:SharpYaml.YamlSerializerOptions) at build time (including converter registration):

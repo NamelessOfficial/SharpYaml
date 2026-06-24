@@ -57,6 +57,8 @@ internal partial class MyYamlContext : YamlSerializerContext
 }
 ```
 
+Member object types, collection element types, and dictionary values are generated transitively from the declared roots when they are statically discoverable. Untyped `object` members use SharpYaml's built-in dynamic converter.
+
 2. Use the generated [`YamlTypeInfo<T>`](xref:SharpYaml.YamlTypeInfo`1):
 
 ```csharp

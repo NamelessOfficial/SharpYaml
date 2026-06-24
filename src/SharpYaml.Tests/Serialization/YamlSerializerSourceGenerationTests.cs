@@ -29,6 +29,31 @@ internal sealed class GeneratedContainer
     public GeneratedPerson? Person { get; set; }
 }
 
+internal sealed class GeneratedTransitiveConfig
+{
+    public GeneratedTransitiveBar? Foo { get; set; }
+
+    public IReadOnlyList<GeneratedTransitiveBar> Bars { get; set; } = [];
+
+    public List<List<GeneratedTransitiveBaz>> Matrix { get; set; } = new();
+
+    public object? Dynamic { get; set; }
+
+    public List<object?> DynamicList { get; set; } = new();
+
+    public Dictionary<string, object?> DynamicMap { get; set; } = new();
+}
+
+internal sealed class GeneratedTransitiveBar
+{
+    public GeneratedTransitiveBaz? Baz { get; set; }
+}
+
+internal sealed class GeneratedTransitiveBaz
+{
+    public string Value { get; set; } = string.Empty;
+}
+
 internal sealed class GeneratedWithDefaultOptions
 {
     public string DisplayName { get; set; } = string.Empty;
@@ -732,6 +757,11 @@ internal partial class TestYamlSerializerContext : YamlSerializerContext
     }
 }
 
+[YamlSerializable(typeof(GeneratedTransitiveConfig))]
+internal partial class TransitiveYamlSerializerContext : YamlSerializerContext
+{
+}
+
 [YamlSourceGenerationOptions(
     WriteIndented = false,
     PropertyNameCaseInsensitive = true,
@@ -1352,6 +1382,61 @@ public class YamlSerializerSourceGenerationTests
         Assert.IsNotNull(container.Person);
         Assert.AreEqual("Ada", container.Person.FirstName);
         Assert.AreEqual(37, container.Person.Age);
+    }
+
+    [TestMethod]
+    public void GeneratedContextTransitivelyGeneratesMemberTypes()
+    {
+        var context = TransitiveYamlSerializerContext.Default;
+        var value = new GeneratedTransitiveConfig
+        {
+            Foo = new GeneratedTransitiveBar
+            {
+                Baz = new GeneratedTransitiveBaz { Value = "nested" },
+            },
+            Bars =
+            [
+                new GeneratedTransitiveBar
+                {
+                    Baz = new GeneratedTransitiveBaz { Value = "collection" },
+                },
+            ],
+            Matrix =
+            [
+                [new GeneratedTransitiveBaz { Value = "a" }],
+                [new GeneratedTransitiveBaz { Value = "b" }],
+            ],
+            Dynamic = new YamlSequence
+            {
+                new YamlValue("node"),
+            },
+            DynamicList =
+            [
+                1,
+                "two",
+                new Dictionary<string, object?> { ["three"] = 3 },
+            ],
+            DynamicMap = new Dictionary<string, object?>
+            {
+                ["items"] = new List<object?> { "x", 4 },
+                ["mapping"] = new YamlMapping { ["key"] = new YamlValue("value") },
+            },
+        };
+
+        var yaml = YamlSerializer.Serialize(value, context.GeneratedTransitiveConfig);
+        var roundtripped = YamlSerializer.Deserialize(yaml, context.GeneratedTransitiveConfig);
+
+        Assert.IsNotNull(context.GetTypeInfo(typeof(GeneratedTransitiveBar), context.Options));
+        Assert.IsNotNull(context.GetTypeInfo(typeof(GeneratedTransitiveBaz), context.Options));
+        Assert.IsNotNull(roundtripped);
+        Assert.IsNotNull(roundtripped.Foo?.Baz);
+        Assert.AreEqual("nested", roundtripped.Foo.Baz.Value);
+        Assert.AreEqual("collection", roundtripped.Bars[0].Baz?.Value);
+        Assert.AreEqual("b", roundtripped.Matrix[1][0].Value);
+        CollectionAssert.AreEqual(new object?[] { "node" }, (List<object?>)roundtripped.Dynamic!);
+        Assert.AreEqual(3L, ((Dictionary<string, object?>)roundtripped.DynamicList[2]!)["three"]);
+        CollectionAssert.AreEqual(new object?[] { "x", 4L }, (List<object?>)roundtripped.DynamicMap["items"]!);
+        Assert.AreEqual("value", ((Dictionary<string, object?>)roundtripped.DynamicMap["mapping"]!)["key"]);
     }
 
     [TestMethod]
