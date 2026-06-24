@@ -508,6 +508,40 @@ internal sealed class GeneratedTypeConverter : YamlConverter<GeneratedTypeWithCo
         => writer.WriteScalar(value.Value);
 }
 
+internal sealed class GeneratedConvertedScalar
+{
+    public string Text { get; set; } = string.Empty;
+}
+
+internal sealed class GeneratedConvertedScalarHolder
+{
+    public GeneratedConvertedScalar Value { get; set; } = new();
+}
+
+internal sealed class GeneratedConvertedScalarConverter : YamlConverter<GeneratedConvertedScalar>
+{
+    public GeneratedConvertedScalarConverter() => InstanceCount++;
+
+    public static int InstanceCount { get; set; }
+
+    public override GeneratedConvertedScalar? Read(YamlReader reader)
+    {
+        var scalar = reader.GetScalarValue();
+        reader.Read();
+        return new GeneratedConvertedScalar { Text = scalar };
+    }
+
+    public override void Write(YamlWriter writer, GeneratedConvertedScalar value)
+        => writer.WriteScalar(value.Text);
+}
+
+internal sealed class ThrowingGeneratedConverterFactory : YamlConverterFactory
+{
+    public override bool CanConvert(Type typeToConvert) => throw new InvalidOperationException("Source-generated converter resolution should be static.");
+
+    public override YamlConverter CreateConverter(Type typeToConvert, YamlSerializerOptions options) => throw new InvalidOperationException("Source-generated converter resolution should be static.");
+}
+
 internal sealed class GeneratedYamlCtorModel
 {
     [YamlConstructor]
@@ -728,6 +762,13 @@ internal partial class TestYamlSerializerContextWithConverters : YamlSerializerC
 }
 
 [YamlSourceGenerationOptions(
+    Converters = new[] { typeof(ThrowingGeneratedConverterFactory), typeof(GeneratedConvertedScalarConverter) })]
+[YamlSerializable(typeof(GeneratedConvertedScalarHolder))]
+internal partial class TestYamlSerializerContextWithNestedConverter : YamlSerializerContext
+{
+}
+
+[YamlSourceGenerationOptions(
     Schema = YamlSchemaKind.Extended,
     UseSchema = true)]
 [YamlSerializable(typeof(GeneratedSchemaAwareScalars))]
@@ -858,6 +899,8 @@ public class YamlSerializerSourceGenerationTests
         AssertGeneratedSourceDoesNotContain(generatedSource, "options.DuplicateKeyHandling");
         AssertGeneratedSourceDoesNotContain(generatedSource, "if (options.");
         AssertGeneratedSourceDoesNotContain(generatedSource, "switch (options.");
+        AssertGeneratedSourceDoesNotContain(generatedSource, "HasRuntimeCustomConverters");
+        AssertGeneratedSourceDoesNotContain(generatedSource, "TryGetCustomConverter");
         AssertGeneratedSourceDoesNotContain(generatedSource, "extensionData is not global::SharpYaml.Model.YamlMapping");
     }
 
@@ -1490,6 +1533,27 @@ public class YamlSerializerSourceGenerationTests
     }
 
     [TestMethod]
+    public void GeneratedContextUsesSourceGenerationOptionsConvertersForNestedTypes()
+    {
+        GeneratedConvertedScalarConverter.InstanceCount = 0;
+        var context = TestYamlSerializerContextWithNestedConverter.Default;
+        var yaml = "Value: hello\n";
+
+        var fromContext = YamlSerializer.Deserialize<GeneratedConvertedScalarHolder>(yaml, context);
+        var fromTypeInfo = YamlSerializer.Deserialize(yaml, context.GeneratedConvertedScalarHolder);
+        var serialized = YamlSerializer.Serialize(
+            new GeneratedConvertedScalarHolder { Value = new GeneratedConvertedScalar { Text = "world" } },
+            context.GeneratedConvertedScalarHolder);
+
+        Assert.IsNotNull(fromContext);
+        Assert.AreEqual("hello", fromContext.Value.Text);
+        Assert.IsNotNull(fromTypeInfo);
+        Assert.AreEqual("hello", fromTypeInfo.Value.Text);
+        StringAssert.Contains(serialized, "Value: world");
+        Assert.AreEqual(1, GeneratedConvertedScalarConverter.InstanceCount);
+    }
+
+    [TestMethod]
     public void GeneratedContextRoundTripsPrimitiveMembers()
     {
         var context = new TestYamlSerializerContext();
@@ -1747,7 +1811,7 @@ public class YamlSerializerSourceGenerationTests
     }
 
     [TestMethod]
-    public void GeneratedContextHonorsCustomConverters()
+    public void GeneratedContextIgnoresRuntimeCustomConverters()
     {
         var context = new TestYamlSerializerContext(
             new YamlSerializerOptions
@@ -1760,18 +1824,19 @@ public class YamlSerializerSourceGenerationTests
 
         var primitivesTypeInfo = context.GeneratedPrimitives;
         var yaml = YamlSerializer.Serialize(new GeneratedPrimitives { Int32Value = 5 }, primitivesTypeInfo);
-        StringAssert.Contains(yaml, "Int32Value: 123");
+        StringAssert.Contains(yaml, "Int32Value: 5");
 
         var roundtripped = YamlSerializer.Deserialize(yaml, primitivesTypeInfo);
         Assert.IsNotNull(roundtripped);
-        Assert.AreEqual(123, roundtripped.Int32Value);
+        Assert.AreEqual(5, roundtripped.Int32Value);
 
         var listTypeInfo = context.ListInt32;
         var yamlList = YamlSerializer.Serialize(new List<int> { 1, 2 }, listTypeInfo);
-        StringAssert.Contains(yamlList, "- 123");
+        StringAssert.Contains(yamlList, "- 1");
+        StringAssert.Contains(yamlList, "- 2");
         var list = YamlSerializer.Deserialize(yamlList, listTypeInfo);
         Assert.IsNotNull(list);
-        CollectionAssert.AreEqual(new[] { 123, 123 }, list);
+        CollectionAssert.AreEqual(new[] { 1, 2 }, list);
     }
 
     [TestMethod]
