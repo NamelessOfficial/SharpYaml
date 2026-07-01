@@ -402,6 +402,50 @@ internal sealed class ConstantIntConverter : YamlConverter<int>
         => writer.WriteScalar("123");
 }
 
+internal sealed class RuntimeIntConverter(int replacementValue) : YamlConverter<int>
+{
+    public override int Read(YamlReader reader)
+    {
+        reader.Skip();
+        return replacementValue;
+    }
+
+    public override void Write(YamlWriter writer, int value)
+        => writer.WriteScalar(replacementValue);
+}
+
+internal sealed class RuntimeGuidConverter(string marker, Guid replacementValue) : YamlConverter<Guid>
+{
+    public override Guid Read(YamlReader reader)
+    {
+        var scalar = reader.GetScalarValue();
+        reader.Read();
+        return string.Equals(scalar, marker, StringComparison.Ordinal) ? replacementValue : Guid.Parse(scalar);
+    }
+
+    public override void Write(YamlWriter writer, Guid value)
+        => writer.WriteScalar(value == replacementValue ? marker : value.ToString("D"));
+}
+
+internal sealed class RuntimeNullableGuidConverter(string marker, Guid replacementValue) : YamlConverter<Guid?>
+{
+    public override Guid? Read(YamlReader reader)
+    {
+        if (YamlScalar.IsNull(reader))
+        {
+            reader.Read();
+            return null;
+        }
+
+        var scalar = reader.GetScalarValue();
+        reader.Read();
+        return string.Equals(scalar, marker, StringComparison.Ordinal) ? replacementValue : Guid.Parse(scalar);
+    }
+
+    public override void Write(YamlWriter writer, Guid? value)
+        => writer.WriteScalar(value == replacementValue ? marker : value.GetValueOrDefault().ToString("D"));
+}
+
 internal sealed class GeneratedLifecycleCallbacks : IYamlOnDeserializing, IYamlOnDeserialized, IYamlOnSerializing, IYamlOnSerialized
 {
     public int Value { get; set; }
@@ -541,6 +585,13 @@ internal sealed class GeneratedConvertedScalar
 internal sealed class GeneratedConvertedScalarHolder
 {
     public GeneratedConvertedScalar Value { get; set; } = new();
+}
+
+internal sealed class GeneratedRuntimeConverterHolder
+{
+    public Guid Id { get; set; }
+
+    public Guid? OptionalId { get; set; }
 }
 
 internal sealed class GeneratedConvertedScalarConverter : YamlConverter<GeneratedConvertedScalar>
@@ -732,6 +783,7 @@ internal sealed class GeneratedReadOnlyPopulateStructContainer
 [YamlSerializable(typeof(GeneratedAttributedExtensionDataPayload))]
 [YamlSerializable(typeof(GeneratedMemberConverterPayload))]
 [YamlSerializable(typeof(GeneratedTypeWithConverter))]
+[YamlSerializable(typeof(GeneratedRuntimeConverterHolder))]
 [YamlSerializable(typeof(GeneratedYamlCtorModel))]
 [YamlSerializable(typeof(GeneratedJsonCtorModel))]
 [YamlSerializable(typeof(GeneratedInternalYamlCtorModel))]
@@ -1620,6 +1672,51 @@ public class YamlSerializerSourceGenerationTests
     }
 
     [TestMethod]
+    public void GeneratedContextAllowsRuntimeConverterReplacementForBuildTimeConverter()
+    {
+        var context = TestYamlSerializerContextWithConverters.Default;
+        var options = new YamlSerializerOptions
+        {
+            TypeInfoResolver = context,
+            Converters = [new RuntimeIntConverter(456)],
+        };
+
+        var yaml = YamlSerializer.Serialize(42, typeof(int), options);
+        var roundTrip = YamlSerializer.Deserialize(yaml, typeof(int), options);
+
+        Assert.AreEqual("456\n", yaml);
+        Assert.AreEqual(456, roundTrip);
+    }
+
+    [TestMethod]
+    public void GeneratedContextAllowsRuntimeConverterReplacementForGeneratedScalarMembers()
+    {
+        var id = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var optionalId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var context = TestYamlSerializerContext.Default;
+        var options = new YamlSerializerOptions
+        {
+            TypeInfoResolver = context,
+            Converters =
+            [
+                new RuntimeGuidConverter("ref:id", id),
+                new RuntimeNullableGuidConverter("ref:optional-id", optionalId),
+            ],
+        };
+
+        var value = YamlSerializer.Deserialize<GeneratedRuntimeConverterHolder>(
+            "Id: ref:id\nOptionalId: ref:optional-id\n",
+            options);
+        var yaml = YamlSerializer.Serialize(new GeneratedRuntimeConverterHolder { Id = id, OptionalId = optionalId }, options);
+
+        Assert.IsNotNull(value);
+        Assert.AreEqual(id, value.Id);
+        Assert.AreEqual(optionalId, value.OptionalId);
+        StringAssert.Contains(yaml, "Id: \"ref:id\"");
+        StringAssert.Contains(yaml, "OptionalId: \"ref:optional-id\"");
+    }
+
+    [TestMethod]
     public void GeneratedContextUsesSourceGenerationOptionsConvertersForNestedTypes()
     {
         GeneratedConvertedScalarConverter.InstanceCount = 0;
@@ -1898,7 +1995,7 @@ public class YamlSerializerSourceGenerationTests
     }
 
     [TestMethod]
-    public void GeneratedContextIgnoresRuntimeCustomConverters()
+    public void GeneratedContextUsesRuntimeCustomConvertersForKnownScalars()
     {
         var context = new TestYamlSerializerContext(
             new YamlSerializerOptions
@@ -1911,19 +2008,18 @@ public class YamlSerializerSourceGenerationTests
 
         var primitivesTypeInfo = context.GeneratedPrimitives;
         var yaml = YamlSerializer.Serialize(new GeneratedPrimitives { Int32Value = 5 }, primitivesTypeInfo);
-        StringAssert.Contains(yaml, "Int32Value: 5");
+        StringAssert.Contains(yaml, "Int32Value: 123");
 
         var roundtripped = YamlSerializer.Deserialize(yaml, primitivesTypeInfo);
         Assert.IsNotNull(roundtripped);
-        Assert.AreEqual(5, roundtripped.Int32Value);
+        Assert.AreEqual(123, roundtripped.Int32Value);
 
         var listTypeInfo = context.ListInt32;
         var yamlList = YamlSerializer.Serialize(new List<int> { 1, 2 }, listTypeInfo);
-        StringAssert.Contains(yamlList, "- 1");
-        StringAssert.Contains(yamlList, "- 2");
+        StringAssert.Contains(yamlList, "- 123");
         var list = YamlSerializer.Deserialize(yamlList, listTypeInfo);
         Assert.IsNotNull(list);
-        CollectionAssert.AreEqual(new[] { 1, 2 }, list);
+        CollectionAssert.AreEqual(new[] { 123, 123 }, list);
     }
 
     [TestMethod]
