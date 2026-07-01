@@ -446,6 +446,25 @@ internal sealed class RuntimeNullableGuidConverter(string marker, Guid replaceme
         => writer.WriteScalar(value == replacementValue ? marker : value.GetValueOrDefault().ToString("D"));
 }
 
+internal sealed class CountingRuntimeGuidConverterFactory(string marker, Guid replacementValue) : YamlConverterFactory
+{
+    public int CanConvertCount { get; private set; }
+
+    public int CreateConverterCount { get; private set; }
+
+    public override bool CanConvert(Type typeToConvert)
+    {
+        CanConvertCount++;
+        return typeToConvert == typeof(Guid);
+    }
+
+    public override YamlConverter CreateConverter(Type typeToConvert, YamlSerializerOptions options)
+    {
+        CreateConverterCount++;
+        return new RuntimeGuidConverter(marker, replacementValue);
+    }
+}
+
 internal sealed class GeneratedLifecycleCallbacks : IYamlOnDeserializing, IYamlOnDeserialized, IYamlOnSerializing, IYamlOnSerialized
 {
     public int Value { get; set; }
@@ -1714,6 +1733,34 @@ public class YamlSerializerSourceGenerationTests
         Assert.AreEqual(optionalId, value.OptionalId);
         StringAssert.Contains(yaml, "Id: \"ref:id\"");
         StringAssert.Contains(yaml, "OptionalId: \"ref:optional-id\"");
+    }
+
+    [TestMethod]
+    public void GeneratedContextResolvesRuntimeConvertersWhenTypeInfoIsInitialized()
+    {
+        var id = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var factory = new CountingRuntimeGuidConverterFactory("ref:id", id);
+        var context = TestYamlSerializerContext.Default;
+        var options = new YamlSerializerOptions
+        {
+            TypeInfoResolver = context,
+            Converters = [factory],
+        };
+
+        var typeInfo = (YamlTypeInfo<GeneratedRuntimeConverterHolder>)context.GetTypeInfo(typeof(GeneratedRuntimeConverterHolder), options)!;
+        var canConvertCount = factory.CanConvertCount;
+        var createConverterCount = factory.CreateConverterCount;
+
+        var yaml = YamlSerializer.Serialize(new GeneratedRuntimeConverterHolder { Id = id }, typeInfo);
+        var value = YamlSerializer.Deserialize("Id: ref:id\n", typeInfo);
+
+        Assert.IsTrue(canConvertCount > 0);
+        Assert.AreEqual(1, createConverterCount);
+        Assert.AreEqual(canConvertCount, factory.CanConvertCount);
+        Assert.AreEqual(createConverterCount, factory.CreateConverterCount);
+        StringAssert.Contains(yaml, "Id: \"ref:id\"");
+        Assert.IsNotNull(value);
+        Assert.AreEqual(id, value.Id);
     }
 
     [TestMethod]

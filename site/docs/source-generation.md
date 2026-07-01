@@ -82,6 +82,24 @@ var roundTrip = YamlSerializer.Deserialize(yaml, typeof(MyConfig), MyYamlContext
 
 Prefer the overloads that accept a [`YamlSerializerContext`](xref:SharpYaml.Serialization.YamlSerializerContext) or a [`YamlTypeInfo<T>`](xref:SharpYaml.YamlTypeInfo`1) directly. This avoids reflection and works well with trimming and NativeAOT.
 
+## Runtime converters with generated contexts
+
+Converters declared in [`YamlSourceGenerationOptionsAttribute.Converters`](xref:SharpYaml.Serialization.YamlSourceGenerationOptionsAttribute.Converters) are resolved by the source generator at build time. If you need to provide runtime converter instances, create options whose [`TypeInfoResolver`](xref:SharpYaml.YamlSerializerOptions.TypeInfoResolver) is the generated context:
+
+```csharp
+var options = MyYamlContext.Default.CreateOptions(o => o with
+{
+    Converters = [new MyRuntimeConverter()],
+});
+
+var typeInfo = (YamlTypeInfo<MyConfig>)MyYamlContext.Default.GetTypeInfo(typeof(MyConfig), options)!;
+var yaml = YamlSerializer.Serialize(value, typeInfo);
+```
+
+Generated contexts resolve supported runtime converter replacements when the generated `YamlTypeInfo<T>` is initialized. Serialization and deserialization do not scan [`YamlSerializerOptions.Converters`](xref:SharpYaml.YamlSerializerOptions.Converters) for generated types. Runtime converters can only replace converter decisions for types that are already part of the generated converter graph; they do not make arbitrary new runtime-only types serializable.
+
+When you reuse the same runtime converter set repeatedly, cache and reuse the generated `YamlTypeInfo<T>` resolved with those options. Passing a separate options instance with `TypeInfoResolver = MyYamlContext.Default` to options-based overloads can require option-specific generated type-info initialization again for each operation.
+
 ## Naming policy and generated code
 
 For source generation, member names are resolved at build time using:

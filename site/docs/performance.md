@@ -8,6 +8,7 @@ SharpYaml is built for configuration workloads: fast parsing/emitting and low al
 
 - Prefer [`YamlTypeInfo<T>`](xref:SharpYaml.YamlTypeInfo`1) for AOT and performance-critical paths.
 - Prefer generated [`YamlTypeInfo<T>`](xref:SharpYaml.YamlTypeInfo`1) properties (for example `MyContext.Default.MyConfig`) over resolving by `Type` in tight loops.
+- When using runtime converters with a generated context, resolve the generated `YamlTypeInfo<T>` once for that options instance and reuse it so converter replacement is initialized once.
 - Reuse [`YamlSerializerOptions`](xref:SharpYaml.YamlSerializerOptions) instances (they are immutable and safe to cache).
 - For large YAML payloads, consider `TextReader`/`TextWriter` overloads to avoid extra copies.
 - For allocation-sensitive output, consider `IBufferWriter<char>` overloads to avoid allocating a `string`.
