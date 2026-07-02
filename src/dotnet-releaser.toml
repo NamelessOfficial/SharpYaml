@@ -4,3 +4,6 @@ project = "SharpYaml.slnx"
 [github]
 user = "xoofx"
 repo = "SharpYaml"
+[nuget]
+user = "xoofx"
+trusted_publishing = true
