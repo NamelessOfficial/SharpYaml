@@ -86,6 +86,7 @@ public class YamlRuntimeDerivedTypeTests
     }
 
     // Interface-based polymorphism
+    [YamlPolymorphic]
     private interface IPlugin
     {
         string Name { get; set; }
@@ -344,6 +345,48 @@ public class YamlRuntimeDerivedTypeTests
         StringAssert.Contains(yaml, "Id: P1");
         StringAssert.Contains(yaml, "MaxPsi: 300");
     }
+
+    [TestMethod]
+    public void RuntimeDerivedTypesDeserializeInterfaceWithPropertyDiscriminator()
+    {
+        var options = CreateInterfacePluginOptions();
+
+        var value = YamlSerializer.Deserialize<IPlugin>("$type: audio\nName: Mixer\nChannels: 8\n", options);
+
+        Assert.IsNotNull(value);
+        Assert.IsInstanceOfType<AudioPlugin>(value);
+        Assert.AreEqual("Mixer", value.Name);
+        Assert.AreEqual(8, ((AudioPlugin)value).Channels);
+    }
+
+    [TestMethod]
+    public void RuntimeDerivedTypesSerializeInterfaceWithPropertyDiscriminator()
+    {
+        var options = CreateInterfacePluginOptions();
+
+        IPlugin value = new VideoPlugin { Name = "Renderer", Width = 1920 };
+        var yaml = YamlSerializer.Serialize(value, typeof(IPlugin), options);
+
+        StringAssert.Contains(yaml, "$type: video");
+        StringAssert.Contains(yaml, "Name: Renderer");
+        StringAssert.Contains(yaml, "Width: 1920");
+    }
+
+    private static YamlSerializerOptions CreateInterfacePluginOptions()
+        => new()
+        {
+            PolymorphismOptions = new YamlPolymorphismOptions
+            {
+                DerivedTypeMappings =
+                {
+                    [typeof(IPlugin)] = new List<YamlDerivedType>
+                    {
+                        new YamlDerivedType(typeof(AudioPlugin), "audio"),
+                        new YamlDerivedType(typeof(VideoPlugin), "video"),
+                    },
+                },
+            },
+        };
 
     // ---- Mixed: Attribute-based + Runtime-based ----
 

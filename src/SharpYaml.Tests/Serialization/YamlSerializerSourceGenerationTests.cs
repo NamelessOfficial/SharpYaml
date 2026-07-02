@@ -327,6 +327,26 @@ internal sealed class GeneratedFallbackZoo
     public GeneratedFallbackShape? Shape { get; set; }
 }
 
+[YamlPolymorphic]
+internal interface IGeneratedNode
+{
+    string Name { get; }
+
+    int Level { get; }
+}
+
+internal sealed class GeneratedConcreteNode : IGeneratedNode
+{
+    public string Name { get; init; } = string.Empty;
+
+    public int Level { get; init; }
+}
+
+internal sealed class GeneratedInterfaceHolder
+{
+    public IGeneratedNode? Value { get; init; }
+}
+
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(GeneratedJsonIntDog), 1)]
 [JsonDerivedType(typeof(GeneratedJsonIntCat), 2)]
@@ -780,6 +800,9 @@ internal sealed class GeneratedReadOnlyPopulateStructContainer
 [YamlSerializable(typeof(GeneratedYamlDefaultZoo))]
 [YamlSerializable(typeof(GeneratedFallbackShape))]
 [YamlSerializable(typeof(GeneratedFallbackZoo))]
+[YamlSerializable(typeof(GeneratedInterfaceHolder))]
+[YamlSerializable(typeof(GeneratedConcreteNode))]
+[YamlDerivedTypeMapping(typeof(IGeneratedNode), typeof(GeneratedConcreteNode), "concrete")]
 [YamlSerializable(typeof(GeneratedJsonIntAnimal))]
 [YamlSerializable(typeof(GeneratedJsonIntZoo))]
 [YamlSerializable(typeof(GeneratedYamlIntAnimal))]
@@ -2139,6 +2162,53 @@ public class YamlSerializerSourceGenerationTests
         var dog = (GeneratedDog)roundtripped.Animal!;
         Assert.AreEqual("Rex", dog.Name);
         Assert.AreEqual(7, dog.BarkVolume);
+    }
+
+    [TestMethod]
+    public void GeneratedContextSupportsInterfacePolymorphismWithDerivedTypeMapping()
+    {
+        var context = new TestYamlSerializerContext();
+
+        var yaml = YamlSerializer.Serialize(
+            new GeneratedInterfaceHolder
+            {
+                Value = new GeneratedConcreteNode { Name = "Root", Level = 3 },
+            },
+            context.GeneratedInterfaceHolder);
+
+        StringAssert.Contains(yaml, "$type: concrete");
+        StringAssert.Contains(yaml, "Name: Root");
+        StringAssert.Contains(yaml, "Level: 3");
+
+        var roundtripped = YamlSerializer.Deserialize(yaml, context.GeneratedInterfaceHolder);
+        Assert.IsNotNull(roundtripped?.Value);
+        Assert.IsInstanceOfType(roundtripped.Value, typeof(GeneratedConcreteNode));
+        var node = (GeneratedConcreteNode)roundtripped.Value;
+        Assert.AreEqual("Root", node.Name);
+        Assert.AreEqual(3, node.Level);
+    }
+
+    [TestMethod]
+    public void GeneratedContextSupportsInterfacePolymorphismAsRootType()
+    {
+        var context = new TestYamlSerializerContext();
+
+        Assert.IsNotNull(context.GetTypeInfo(typeof(IGeneratedNode), context.Options));
+
+        var yaml = YamlSerializer.Serialize(
+            new GeneratedConcreteNode { Name = "Root", Level = 4 },
+            typeof(IGeneratedNode),
+            context);
+
+        StringAssert.Contains(yaml, "$type: concrete");
+        StringAssert.Contains(yaml, "Name: Root");
+        StringAssert.Contains(yaml, "Level: 4");
+
+        var roundtripped = (IGeneratedNode?)YamlSerializer.Deserialize(yaml, typeof(IGeneratedNode), context);
+        Assert.IsNotNull(roundtripped);
+        Assert.IsInstanceOfType(roundtripped, typeof(GeneratedConcreteNode));
+        Assert.AreEqual("Root", roundtripped.Name);
+        Assert.AreEqual(4, roundtripped.Level);
     }
 
     [TestMethod]
