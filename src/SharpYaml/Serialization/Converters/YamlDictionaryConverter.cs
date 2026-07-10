@@ -27,7 +27,10 @@ internal static class YamlDictionaryConverterHelper
         }
 
         var anchor = writer.ReferenceWriter.GetOrAddAnchor(referenceValue);
-        writer.WriteAnchor(anchor);
+        if (anchor is not null)
+        {
+            writer.WriteAnchor(anchor);
+        }
         return false;
     }
 

@@ -123,4 +123,39 @@ public class YamlReferenceHandlingTests
         StringAssert.Contains(roundTrip, "&id001");
         StringAssert.Contains(roundTrip, "self: *id001");
     }
+
+    [TestMethod]
+    public void PreserveMinimalOnlyAnchorsSharedReferences()
+    {
+        var node = new Node { Name = "shared" };
+        var container = new Container { A = node, B = node };
+        var options = new SharpYaml.YamlSerializerOptions { ReferenceHandling = SharpYaml.YamlReferenceHandling.PreserveMinimal };
+
+        var yaml = SharpYaml.YamlSerializer.Serialize(container, options);
+
+        Assert.IsFalse(yaml.StartsWith("&", StringComparison.Ordinal), "The unreferenced root should not have an anchor.");
+        StringAssert.Contains(yaml, "A: &id001");
+        StringAssert.Contains(yaml, "B: *id001");
+
+        var roundTrip = SharpYaml.YamlSerializer.Deserialize<Container>(yaml, options);
+        Assert.IsNotNull(roundTrip);
+        Assert.IsTrue(ReferenceEquals(roundTrip.A, roundTrip.B));
+    }
+
+    [TestMethod]
+    public void PreserveMinimalPreservesCycles()
+    {
+        var node = new Node { Name = "root" };
+        node.Next = node;
+        var options = new SharpYaml.YamlSerializerOptions { ReferenceHandling = SharpYaml.YamlReferenceHandling.PreserveMinimal };
+
+        var yaml = SharpYaml.YamlSerializer.Serialize(node, options);
+
+        StringAssert.Contains(yaml, "&id001");
+        StringAssert.Contains(yaml, "Next: *id001");
+
+        var roundTrip = SharpYaml.YamlSerializer.Deserialize<Node>(yaml, options);
+        Assert.IsNotNull(roundTrip);
+        Assert.IsTrue(ReferenceEquals(roundTrip, roundTrip.Next));
+    }
 }

@@ -73,7 +73,10 @@ internal sealed class YamlEnumerableConverter<TElement> : YamlConverter<IEnumera
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();

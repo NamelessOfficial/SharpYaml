@@ -116,7 +116,10 @@ internal sealed class YamlDictionaryObjectConverter : YamlConverter<Dictionary<s
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartMapping();
@@ -335,7 +338,10 @@ internal sealed class YamlListObjectConverter : YamlConverter<List<object?>?>
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();
@@ -450,7 +456,10 @@ internal sealed class YamlObjectArrayConverter : YamlConverter<object[]?>
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();

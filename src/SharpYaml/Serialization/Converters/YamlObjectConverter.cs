@@ -1,4 +1,4 @@
-﻿// // Copyright (c) Alexandre Mutel. All rights reserved.
+// // Copyright (c) Alexandre Mutel. All rights reserved.
 // // Licensed under the MIT license.
 // // See LICENSE.txt file in the project root for full license information.
 
@@ -145,7 +145,10 @@ internal sealed class YamlObjectConverter<T> : YamlConverter<T?>
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         if (value is IYamlOnSerializing onSerializing)

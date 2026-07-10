@@ -39,7 +39,7 @@ public sealed class YamlReader : YamlReaderWriterBase
         ArgumentGuard.ThrowIfNull(yaml);
         var effectiveOptions = options ?? YamlSerializerOptions.Default;
         var parser = SharpYaml.Parser.CreateParser(new StringReader(yaml), effectiveOptions.EffectiveMaxDepth, effectiveOptions.SourceName);
-        var referenceReader = effectiveOptions.ReferenceHandling == YamlReferenceHandling.Preserve ? new YamlReferenceReader() : null;
+        var referenceReader = effectiveOptions.ReferenceHandling != YamlReferenceHandling.None ? new YamlReferenceReader() : null;
         return new YamlReader(new YamlReaderState(parser, referenceReader, effectiveOptions.SourceName), effectiveOptions);
     }
 
@@ -54,7 +54,7 @@ public sealed class YamlReader : YamlReaderWriterBase
         ArgumentGuard.ThrowIfNull(reader);
         var effectiveOptions = options ?? YamlSerializerOptions.Default;
         var parser = SharpYaml.Parser.CreateParser(reader, effectiveOptions.EffectiveMaxDepth, effectiveOptions.SourceName);
-        var referenceReader = effectiveOptions.ReferenceHandling == YamlReferenceHandling.Preserve ? new YamlReferenceReader() : null;
+        var referenceReader = effectiveOptions.ReferenceHandling != YamlReferenceHandling.None ? new YamlReferenceReader() : null;
         return new YamlReader(new YamlReaderState(parser, referenceReader, effectiveOptions.SourceName), effectiveOptions);
     }
 

@@ -7,6 +7,7 @@ using System.Buffers;
 using System.IO;
 using System.Text;
 using SharpYaml.Serialization;
+using SharpYaml.Serialization.References;
 
 namespace SharpYaml;
 
@@ -1091,7 +1092,7 @@ public static class YamlSerializer
         ArgumentGuard.ThrowIfNull(typeInfo);
         ArgumentGuard.ThrowIfNull(writer);
 
-        var yamlWriter = new YamlWriter(writer, typeInfo.Options);
+        var yamlWriter = CreateWriter(typeInfo, value, writer);
         typeInfo.Write(yamlWriter, value);
         if (!yamlWriter.EndsWithNewLine)
         {
@@ -1099,11 +1100,27 @@ public static class YamlSerializer
         }
     }
 
+    private static YamlWriter CreateWriter(YamlTypeInfo typeInfo, object? value, TextWriter writer)
+    {
+        if (typeInfo.Options.ReferenceHandling != YamlReferenceHandling.PreserveMinimal)
+        {
+            return new YamlWriter(writer, typeInfo.Options);
+        }
+
+        var referenceWriter = new YamlReferenceWriter(collectReferences: true);
+        var collectingWriter = new YamlWriter(TextWriter.Null, typeInfo.Options, referenceWriter);
+        typeInfo.Write(collectingWriter, value);
+        referenceWriter.CompleteReferenceCollection();
+        return new YamlWriter(writer, typeInfo.Options, referenceWriter);
+    }
+
     private static string SerializeCore(YamlTypeInfo typeInfo, object? value)
     {
         ArgumentGuard.ThrowIfNull(typeInfo);
         var stringBuilder = AcquireStringBuilder(minimumCapacity: 1024);
-        var writer = new YamlWriter(stringBuilder, typeInfo.Options);
+        var writer = typeInfo.Options.ReferenceHandling == YamlReferenceHandling.PreserveMinimal
+            ? CreateWriter(typeInfo, value, new StringWriter(stringBuilder, System.Globalization.CultureInfo.InvariantCulture))
+            : new YamlWriter(stringBuilder, typeInfo.Options);
         typeInfo.Write(writer, value);
         if (!writer.EndsWithNewLine)
         {
@@ -1117,7 +1134,9 @@ public static class YamlSerializer
     {
         ArgumentGuard.ThrowIfNull(typeInfo);
         var stringBuilder = AcquireStringBuilder(minimumCapacity: 1024);
-        var writer = new YamlWriter(stringBuilder, typeInfo.Options);
+        var writer = typeInfo.Options.ReferenceHandling == YamlReferenceHandling.PreserveMinimal
+            ? CreateWriter(typeInfo, value, new StringWriter(stringBuilder, System.Globalization.CultureInfo.InvariantCulture))
+            : new YamlWriter(stringBuilder, typeInfo.Options);
         typeInfo.Write(writer, value);
         if (!writer.EndsWithNewLine)
         {

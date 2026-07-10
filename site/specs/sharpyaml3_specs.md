@@ -131,7 +131,7 @@ public sealed class YamlSerializerOptions
     public YamlPolymorphismOptions PolymorphismOptions { get; }
 
     // References (anchors/aliases)
-    public YamlReferenceHandling ReferenceHandling { get; set; } // None / Preserve
+    public YamlReferenceHandling ReferenceHandling { get; set; } // None / Preserve / PreserveMinimal
 
     // Metadata / resolvers
     public IYamlTypeInfoResolver? TypeInfoResolver { get; set; }
@@ -415,6 +415,7 @@ Define:
 
 - `YamlReferenceHandling.None` (default): no alias emission; repeated references become repeated values.
 - `YamlReferenceHandling.Preserve`: emit anchors/aliases to preserve object reference graphs.
+- `YamlReferenceHandling.PreserveMinimal`: preserve object reference graphs while emitting anchors only for shared or cyclic objects. This requires a pre-serialization pass.
 
 The preserve mode must:
 

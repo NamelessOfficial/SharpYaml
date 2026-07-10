@@ -244,7 +244,10 @@ internal sealed class YamlHashSetConverter<TElement> : YamlConverter<HashSet<TEl
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();
@@ -335,7 +338,10 @@ internal sealed class YamlISetConverter<TElement> : YamlConverter<ISet<TElement>
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();
@@ -599,7 +605,10 @@ internal static class SequenceReadHelpers
             }
 
             var anchor = writer.ReferenceWriter.GetOrAddAnchor(value);
-            writer.WriteAnchor(anchor);
+            if (anchor is not null)
+            {
+                writer.WriteAnchor(anchor);
+            }
         }
 
         writer.WriteStartSequence();

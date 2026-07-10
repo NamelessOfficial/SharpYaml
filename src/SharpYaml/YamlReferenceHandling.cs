@@ -18,5 +18,11 @@ public enum YamlReferenceHandling
     /// Preserve object references using YAML anchors/aliases.
     /// </summary>
     Preserve = 1,
+
+    /// <summary>
+    /// Preserve object references using YAML anchors/aliases, emitting anchors only for objects that are referenced more than once.
+    /// </summary>
+    /// <remarks>This mode performs a pre-serialization pass to identify shared and cyclic references.</remarks>
+    PreserveMinimal = 2,
 }
 
